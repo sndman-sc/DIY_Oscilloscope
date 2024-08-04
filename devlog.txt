@@ -1,0 +1,80 @@
+4-8-2024:
+fixed a bug in sample size, had to actually increase it a bit cuz sample time is a little less than 0.36 (~0.358...)
+clampled the bin to datapoint in tft_sample() function so nowwe can go lower than 100 x_zoom_factor
+first commit to github too I guess...
+
+30-7-2024:
+first need to fix up the UI
+
+7 functions implemented on screen accessible by touch
+
+ground both analog pins (XM PA1) (YP PA3) for better reading on touch screen
+
+29-7-2024:
+Lets figure out touch...
+
+okay theres 328 ohms resistance between lcd RS and D0, this might be our X- X+
+theres 530 ohms between lcd CS and D1, this might be our Y- Y+
+XP: D0 PB0 | XM: RS PA10 | YP: CS PA3 | YM: D1 PB1
+
+have to manually change analog pins to output after sampling (XM YP)
+
+have problem getting Y value (along the width)
+yeah turns out PA10 is not analog...  no alternate function either
+if I switch PA10 with PA1(SD_CS)...
+
+Ok switched the pins, was a bitch to modify the board at this point, but getting touch data now XD :lober:
+also gotta change library from 10 bit(1023) to 12 bit(4095) adc in it's formulas
+
+gotta maybe put a resistor on YP (PA3) to fix it jumping around at idle
+fixed it, readings at idle are far better now (adc reads ~0 so reports are ~4095)
+dunno how to fix Z tho, dont care either. time to calibrate.
+
+
+28-7-2024:
+Calling arduino functions always resets the registers after its done with them
+like calling ADC, after that it resets RCC and ADC registers (only relevant pins)
+
+NVIC IRQ handling is best done by arduino since it changes the priorities.
+interrupts unhandled by arduino end up in infinite loop.
+
+it's all coming together finally. Trigger got fixed, test sig gen fixed, need to add console commands.
+touch support might be tricky.
+
+figured out a bunch more shit like the two mentioned above, all commented in the code or platformio.ini hopefully :)
+
+thing is, I didn't think I'd run out of gpio pins, the goddamn parallel interface takes up the whole port B.
+really wanted to add knobs and keys to help with settings.
+hopefully touch will save my ass so that it will be usable standalone rather than always being connected to PC.
+
+prescaler loading and ticks on overflow doesnt work that well
+also somehow defaut HERTZ_FORMAT generates double the frequency
+
+to scroll when zoomed in we need to set start_sample end_sample accordingly
+
+break down of this:
+signalY1 = ((DISP_H * buffer[(signalX + 1) * ((end_sample - start_sample) / (DISP_W * x_zoom_factor / 100)) + 1]) / 4096) * (y_zoom_factor / 100) + y_pos;
+- DISP_H * BUFFER / 4096 -> normalize and expand it to whole vertical space
+- * y_zoom_factor / 100 -> vertical zoom (remove the paranthesis to stop getting it fucked, its int type)
+- + y_pos offset
+- ((end_sample - start_sample) / (DISP_W * x_zoom_factor / 100)) -> bin the window to whole horizontal range,
+	x_zoom_factor will expand the range so we get tighter bins
+- (signalX + 1) * choose Nth sample from the bin
+so choose a window, bin it, choose a sample from bin, normalize and strech, add offset. (I'd do the same thing tbh)
+
+x_zoom_factor is like Tdiv coefficient, y_zoom_factor is Vdiv coefficient.
+the 100 thing is to give finer control over factors.
+
+scroll is essentially tdiv manupilation
+frame time calculation in the "if"s so that we wont have draw out of hold.
+hold is godsend honestly, underestimated it. gives you opportunity to look at the signal.
+
+works better than I was expecting with the serial commands to be honest.
+although, vscode serial works, Terminal app needs (CR=CR+LF and CR options enabled)
+Terminal app fucking sucks tho, only a lot of options, but garbage ui.
+
+x_zoom_factor while increasing bin size, will result in including on starting samples,
+thats why we increase the start_sample as thats the other option for us. 
+
+now to get the touch going so that it becomes standalone...
+need to figure out the pin out, cuz it was working on leonardo.
