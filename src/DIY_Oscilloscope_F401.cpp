@@ -10,7 +10,7 @@
 
 // PB_LOW (entire PB realisticly) for data lines
 // PA 10 9 8 3 2 for commands, this way 7 6 5 4 can be used as spi for sdcard and 1 0 will be free
-// SPI1: PA7 MOSI		PA6 MISO		PA5 SCK		PA4 EEPROM CS		PA1 SDCARD CS
+// SPI1: PA7 MOSI		PA6 MISO		PA5 SCK		PA4 EEPROM CS		PA10 SDCARD CS
 #define ADCPIN PA0
 #define MOSI PA7
 #define MISO PA6
