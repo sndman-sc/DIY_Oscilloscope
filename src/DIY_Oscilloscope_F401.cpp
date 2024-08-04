@@ -32,7 +32,6 @@
 #define DISP_H 240
 #define LANDSCAPE 1
 #define PORTRAIT 0
-// #define MAX_SAMPLES (1024*25) // Depends on available RAM.
 #define MAX_SAMPLES (27925) // * 0.358us/s = ~10ms window
 
 // Display stuff
