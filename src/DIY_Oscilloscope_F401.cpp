@@ -33,7 +33,6 @@
 #define LANDSCAPE 1
 #define PORTRAIT 0
 #define MAX_SAMPLES (27925) // * 0.358us/s = ~10ms window
-
 // Display stuff
 #define BEAM1_COLOUR GREEN
 #define BEAM2_COLOUR RED
@@ -72,13 +71,14 @@ uint8_t not_triggered;
 // Trigger is setup in one of 32 positions
 #define TRIGGER_STEP 128 // (4096/32)
 int32_t trigger_value = 2048; // Trigger default position
-int16_t retrigger_delay = 0;
+// int16_t retrigger_delay = 0;
 int8_t trigger_type = 1; //0-both 1-negative 2-positive 3-no trigger
 uint16_t trigger_points[2]; //Array for trigger points
 
 // Settings stuff
 HardwareTimer test_sig_timer(TIM3);
 uint16_t buffer[MAX_SAMPLES];
+uint16_t bias = 1.624615384615385*DISP_H/(3.3f); //bias when input is grounded*height/vref
 uint16_t dataPlot[DISP_W]; //array for computed data (speedup)
 uint32_t _settings_alloc = 0;
 // ADC Clock Prescaler (0 1 2 3), Sample Cycle (0 1 2 3 4 5 6 7), 
@@ -107,6 +107,7 @@ void tft_samples_clear(uint16_t beam_color);
 void tft_samples(uint16_t beam_color);
 void read_touch();
 // Commands:
+void calibrate();
 void toggle_hold();
 void dec_xzoom();
 void inc_xzoom();
@@ -140,6 +141,7 @@ void setup() {
 	analogReadResolution(12);
 
 	/* Init Serial Commands: */
+	cmd.addCommand("b", calibrate);
 	cmd.addCommand("h", toggle_hold);			   // Turns triggering on/off
 	cmd.addCommand("t", inc_xzoom);		   
 	cmd.addCommand("T", dec_xzoom);		   
@@ -204,6 +206,7 @@ void setup() {
 
 	/* End of Setup */
 	delay(2500);
+	SerialUSB.println("b: Calibrate Zero");
 	SerialUSB.println("h: Hold trigger");
 	SerialUSB.println("t: Decrease TDiv");
 	SerialUSB.println("T: Increase TDiv");
@@ -251,13 +254,13 @@ void loop() {
 			show_graticule();
 			tft_samples(BEAM1_COLOUR);
 		}
-		else show_graticule();
+		// else show_graticule(); // Optimized out
 	}
 	frametime = micros() - frametime; // needs to be calculated before show_labels()
 	show_labels();
 	frametime = micros();
 	// dbg_print_on_usb();
-	delay(retrigger_delay);
+	// delay(retrigger_delay); // No need
 }
 /* IRQs: */
 void timer2_update_callback() {
@@ -282,11 +285,12 @@ void read_touch() {
 		// tft.drawPixel(p.x, p.y, BEAM2_COLOUR); // debug
 		if(p.x>170 && p.x<190 && p.y>295 && p.y<310) toggle_hold();
 		else if(p.x>150 && p.x<170 && p.y>295 && p.y<320) inc_edgetype();
+		else if(p.x>40 && p.x<60 && p.y>280 && p.y<320) calibrate();
 		else if(p.x>20 && p.x<40 && p.y>295 && p.y<320) inc_samplecycle();
-		if(p.x<30 && p.y>140 && p.y<170) inc_xzoom();
-		if(p.x<30 && p.y>240 && p.y<270) dec_xzoom();
-		if(p.x<30 && p.y<30) inc_yzoom();
-		if(p.x<30 && p.y>75 && p.y<105) dec_yzoom();
+		else if(p.x<30 && p.y>140 && p.y<170) inc_xzoom();
+		else if(p.x<30 && p.y>240 && p.y<270) dec_xzoom();
+		else if(p.x<30 && p.y<30) inc_yzoom();
+		else if(p.x<30 && p.y>75 && p.y<105) dec_yzoom();
 	}
 }
 void fill_sample_buffer() {
@@ -388,6 +392,8 @@ void show_labels() {
 			tft.print("TB");
 			break;
 	}
+	tft.setCursor(280, 170);
+	tft.print("CAL");
 	tft.setCursor(290, 190);
 	tft.print("SC");
 	tft.setTextColor(TEXT2_COLOUR, BEAM_OFF_COLOUR);
@@ -438,14 +444,15 @@ void tft_samples(uint16_t beam_color) {
 	// calculate first sample
 	uint32_t bins = ((end_sample - start_sample) / (DISP_W * x_zoom_factor / 100)) + 1;
 	uint32_t buffer_dat_point;
-	signalY = ((DISP_H * buffer[0 * bins]) / 4096) * y_zoom_factor / 100 + y_pos;
+	signalY = ((DISP_H * buffer[0 * bins]) / 4096 - bias) * y_zoom_factor / 100 + y_pos + (DISP_H/2) + 2;
 	dataPlot[0] = signalY * 99 / 100 + 1;
 	for (signalX = 1; signalX < DISP_W - 2; signalX++) {
 		// Scale our samples to fit our screen. Most scopes increase this in steps of 5,10,25,50,100 250,500,1000 etc
 		// Pick the nearest suitable samples for each of our myWidth screen resolution points
+		// remove bias first, apply scaling, add display bias (height/2) and graticule bias +2 back to display correctly
 		buffer_dat_point = (signalX + 1) * bins;
 		if(buffer_dat_point >= MAX_SAMPLES) buffer_dat_point = MAX_SAMPLES-1;
-		signalY1 = ((DISP_H * buffer[buffer_dat_point]) / 4096) * y_zoom_factor / 100 + y_pos;
+		signalY1 = ((DISP_H * buffer[buffer_dat_point]) / 4096 - bias) * y_zoom_factor / 100 + y_pos + (DISP_H/2) + 2;
 		dataPlot[signalX] = signalY1 * 99 / 100 + 1;
 		tft.drawLine(dataPlot[signalX - 1], signalX, dataPlot[signalX], signalX + 1, beam_color);
 		signalY = signalY1;
@@ -499,6 +506,16 @@ void trigger_n() {
 		}
 		trigger_points[0] = trigger_points[1];
 	}
+}
+void calibrate() {
+	SerialUSB.println("# Calibrating...");
+	for (int i = 0; i<10; i++) {
+		bias += analogRead(ADCPIN);
+		bias /= 2;
+	}
+	SerialUSB.print("# New Bias = ");
+	SerialUSB.println(bias * 3.3 / 4096);
+	bias = bias * DISP_H / 4096;
 }
 void toggle_hold() { 
 	trigger_held ^= 1;
